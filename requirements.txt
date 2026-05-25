@@ -1,0 +1,4 @@
+pyaprilaire>=0.9.1
+pydantic>=2
+structlog>=24
+python-dotenv>=1
