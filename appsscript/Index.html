@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Electricity Dashboard</title>
+  <style>
+    :root {
+      --ink: #202124;
+      --muted: #5f6368;
+      --green: #188038;
+      --amber: #b06000;
+      --red: #c5221f;
+      --bg: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      padding: 16px 18px 12px;
+    }
+    .title {
+      font-size: 18px;
+      color: var(--muted);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .chart-wrap {
+      flex: 1 1 auto;
+      min-height: 240px;
+      position: relative;
+    }
+    .status {
+      flex: 0 0 auto;
+      text-align: center;
+      padding: 14px 8px 6px;
+    }
+    .status .headline {
+      font-size: clamp(22px, 6vw, 38px);
+      font-weight: 800;
+      line-height: 1.15;
+    }
+    .status .sub {
+      font-size: clamp(15px, 3.6vw, 20px);
+      color: var(--muted);
+      margin-top: 6px;
+    }
+    .ok { color: var(--green); }
+    .warn { color: var(--amber); }
+    .bad { color: var(--red); }
+    .caption {
+      flex: 0 0 auto;
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+    .center-msg {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 18px;
+      text-align: center;
+      padding: 0 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="title">This month's electricity</div>
+  <div class="chart-wrap">
+    <canvas id="usageChart"></canvas>
+    <div id="overlay" class="center-msg">Loading…</div>
+  </div>
+  <div id="status" class="status"></div>
+  <div id="caption" class="caption"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+  <script>
+    function setOverlay(text) {
+      var el = document.getElementById('overlay');
+      if (!text) { el.style.display = 'none'; return; }
+      el.style.display = 'flex';
+      el.textContent = text;
+    }
+
+    function renderStatus(d) {
+      var statusEl = document.getElementById('status');
+      var marginAbs = Math.abs(Math.round(d.margin));
+      var overUnder = d.margin >= 0 ? (marginAbs + ' kWh over the goal') : (marginAbs + ' kWh under the goal');
+      var cls, headline, sub;
+
+      if (d.verdict === 'LIKELY CLEAR') {
+        cls = 'ok';
+        headline = 'On track for the $' + d.creditUsd + ' credit';
+        sub = Math.round(d.projectedTotal) + ' kWh projected · ' + overUnder;
+      } else if (d.verdict === 'CLOSE') {
+        cls = 'warn';
+        headline = 'Just over the goal — keep it up';
+        sub = Math.round(d.projectedTotal) + ' kWh projected · ' + overUnder;
+      } else {
+        cls = 'bad';
+        headline = 'May miss the $' + d.creditUsd + ' credit';
+        sub = "It's OK to use a little more · " + Math.round(d.projectedTotal) + ' kWh projected · ' + overUnder;
+      }
+      statusEl.innerHTML = '<div class="headline ' + cls + '">' + headline + '</div>' +
+        '<div class="sub">' + sub + '</div>';
+    }
+
+    function renderChart(d) {
+      var suggestedMax = Math.max(d.threshold * 1.1, d.projectedTotal * 1.1, d.threshold + 50);
+      var ctx = document.getElementById('usageChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: d.labels,
+          datasets: [
+            {
+              label: 'So far',
+              data: d.actualCumulative,
+              borderColor: '#1a73e8',
+              backgroundColor: '#1a73e8',
+              borderWidth: 4,
+              pointRadius: 0,
+              tension: 0.15,
+              spanGaps: false
+            },
+            {
+              label: 'Projected',
+              data: d.projectedCumulative,
+              borderColor: '#9aa0a6',
+              backgroundColor: '#9aa0a6',
+              borderWidth: 3,
+              borderDash: [8, 6],
+              pointRadius: 0,
+              tension: 0.15,
+              spanGaps: true
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { intersect: false, mode: 'index' },
+          plugins: {
+            legend: { labels: { font: { size: 16 }, boxWidth: 24, usePointStyle: false } },
+            tooltip: {
+              callbacks: {
+                label: function (item) {
+                  if (item.parsed.y == null) return null;
+                  return item.dataset.label + ': ' + Math.round(item.parsed.y) + ' kWh';
+                }
+              }
+            },
+            annotation: {
+              annotations: {
+                goal: {
+                  type: 'line',
+                  yMin: d.threshold,
+                  yMax: d.threshold,
+                  borderColor: '#d93025',
+                  borderWidth: 2,
+                  borderDash: [4, 4],
+                  label: {
+                    display: true,
+                    content: d.threshold.toLocaleString() + ' kWh goal',
+                    position: 'end',
+                    color: '#fff',
+                    backgroundColor: '#d93025',
+                    font: { size: 13, weight: 'bold' }
+                  }
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              suggestedMax: suggestedMax,
+              title: { display: true, text: 'kWh this month', font: { size: 15 } },
+              ticks: { font: { size: 14 } }
+            },
+            x: {
+              ticks: { font: { size: 13 }, autoSkip: true, maxTicksLimit: 8, maxRotation: 0 }
+            }
+          }
+        }
+      });
+    }
+
+    function render(d) {
+      if (!d || !d.labels || !d.labels.length) {
+        setOverlay('No data yet. In the Sheet, use ⚡ Electricity → Refresh now.');
+        return;
+      }
+      setOverlay('');
+      renderChart(d);
+      renderStatus(d);
+      document.getElementById('caption').textContent = d.lastUpdated ? ('Updated ' + d.lastUpdated) : '';
+    }
+
+    function showError(err) {
+      setOverlay('Could not load data. Please try again later.');
+      console.error(err);
+    }
+
+    google.script.run.withSuccessHandler(render).withFailureHandler(showError).getDashboardData();
+  </script>
+</body>
+</html>

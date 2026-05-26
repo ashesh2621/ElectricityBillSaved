@@ -1,0 +1,5 @@
+# clasp local config — carries your personal scriptId; copy from .clasp.json.example
+.clasp.json
+
+# clasp credentials should NEVER be in a repo (they live at ~/.clasprc.json)
+.clasprc.json
